@@ -1,0 +1,257 @@
+====================================================================
+SECTION 1: DATABASE SCHEMA (CREATE, ALTER)
+====================================================================
+-- Note: Extracted and normalized from JPA Entities and schema.sql
+
+CREATE TABLE roles (
+    role_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    role_name VARCHAR(255)
+);
+
+CREATE TABLE users (
+    user_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255),
+    email VARCHAR(255) UNIQUE,
+    phone VARCHAR(255) UNIQUE,
+    dob DATE,
+    password VARCHAR(255) NOT NULL,
+    address VARCHAR(255),
+    role_id BIGINT,
+    is_active BOOLEAN DEFAULT TRUE,
+    FOREIGN KEY (role_id) REFERENCES roles(role_id)
+);
+
+CREATE TABLE students (
+    student_id BIGINT PRIMARY KEY,
+    prn VARCHAR(255) UNIQUE,
+    branch VARCHAR(255),
+    division VARCHAR(255),
+    FOREIGN KEY (student_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE teachers (
+    teacher_id BIGINT NOT NULL PRIMARY KEY,
+    subject VARCHAR(255),
+    assigned_classes VARCHAR(255),
+    assigned_divisions VARCHAR(255),
+    FOREIGN KEY (teacher_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE classes (
+    class_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    class_name VARCHAR(255) NOT NULL,
+    class_link VARCHAR(255) UNIQUE,
+    created_by BIGINT NOT NULL,
+    created_at TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(user_id)
+);
+
+CREATE TABLE class_members (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    class_id BIGINT,
+    user_id BIGINT,
+    role_in_class VARCHAR(255),
+    status VARCHAR(255),
+    FOREIGN KEY (class_id) REFERENCES classes(class_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE timetable (
+    timetable_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    class_id BIGINT NOT NULL,
+    teacher_id BIGINT,
+    day VARCHAR(10) NOT NULL,
+    week_number INT,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    division VARCHAR(255) NOT NULL,
+    FOREIGN KEY (class_id) REFERENCES classes(class_id),
+    FOREIGN KEY (teacher_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE lectures (
+    lecture_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    timetable_id BIGINT NOT NULL,
+    lecture_date DATE NOT NULL,
+    started_at TIMESTAMP,
+    ended_at TIMESTAMP,
+    status VARCHAR(50) NOT NULL,
+    cancelled_at TIMESTAMP,
+    created_at TIMESTAMP,
+    UNIQUE (timetable_id, lecture_date),
+    FOREIGN KEY (timetable_id) REFERENCES timetable(timetable_id)
+);
+
+CREATE TABLE attendance_actual (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    lecture_id BIGINT NOT NULL,
+    student_id BIGINT NOT NULL,
+    actual_status VARCHAR(50) NOT NULL,
+    UNIQUE (lecture_id, student_id),
+    FOREIGN KEY (lecture_id) REFERENCES lectures(lecture_id),
+    FOREIGN KEY (student_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE attendance_declared (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    lecture_id BIGINT NOT NULL,
+    student_id BIGINT NOT NULL,
+    declared_status VARCHAR(50) NOT NULL,
+    declared_at TIMESTAMP NOT NULL,
+    UNIQUE (lecture_id, student_id),
+    FOREIGN KEY (lecture_id) REFERENCES lectures(lecture_id),
+    FOREIGN KEY (student_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE feedback (
+    feedback_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    lecture_id BIGINT NOT NULL,
+    hashed_student_key VARCHAR(64) NOT NULL,
+    understand VARCHAR(10) NOT NULL,
+    comment TEXT,
+    star_rating INT,
+    is_valid BOOLEAN DEFAULT TRUE,
+    submitted_at TIMESTAMP,
+    UNIQUE (lecture_id, hashed_student_key),
+    FOREIGN KEY (lecture_id) REFERENCES lectures(lecture_id)
+);
+
+CREATE TABLE integrity_score (
+    student_id BIGINT PRIMARY KEY,
+    total_lectures INT NOT NULL DEFAULT 0,
+    honest_count INT NOT NULL DEFAULT 0,
+    dishonest_count INT NOT NULL DEFAULT 0,
+    coins INT NOT NULL DEFAULT 0,
+    integrity_percentage DECIMAL(5,2) NOT NULL DEFAULT 100.00,
+    FOREIGN KEY (student_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE notes (
+    note_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    lecture_id BIGINT NOT NULL,
+    uploaded_by BIGINT NOT NULL,
+    drive_link VARCHAR(255) NOT NULL,
+    version INT DEFAULT 1,
+    uploaded_at TIMESTAMP,
+    FOREIGN KEY (lecture_id) REFERENCES lectures(lecture_id),
+    FOREIGN KEY (uploaded_by) REFERENCES users(user_id)
+);
+
+CREATE TABLE announcements (
+    announcement_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    message TEXT NOT NULL,
+    created_by BIGINT NOT NULL,
+    class_id BIGINT,
+    division VARCHAR(50),
+    created_at TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(user_id),
+    FOREIGN KEY (class_id) REFERENCES classes(class_id)
+);
+
+CREATE TABLE password_reset_otp (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    otp VARCHAR(6) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP
+);
+
+-- From raw schema.sql explicitly:
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS division VARCHAR(50);
+
+
+====================================================================
+SECTION 2: DATA MANIPULATION (INSERT, UPDATE, DELETE)
+====================================================================
+-- (Inferred from standard Spring Data JPA JpaRepository usage models)
+
+-- Example standard operations
+INSERT INTO users (name, email, phone, dob, password, address, role_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+INSERT INTO attendance_declared (lecture_id, student_id, declared_status, declared_at) VALUES (?, ?, ?, ?);
+
+INSERT INTO notes (lecture_id, uploaded_by, drive_link, version, uploaded_at) VALUES (?, ?, ?, ?, ?);
+
+UPDATE students SET division = ? WHERE student_id = ?;
+
+UPDATE feedback SET is_valid = ? WHERE feedback_id = ?;
+
+UPDATE integrity_score SET honest_count = ?, dishonest_count = ?, integrity_percentage = ? WHERE student_id = ?;
+
+DELETE FROM users WHERE user_id = ?;
+
+
+====================================================================
+SECTION 3: QUERIES (SELECT, JOIN)
+====================================================================
+-- Extracted from FeedbackRepository @Query: Teacher-only anonymous text feedback for ONE lecture
+SELECT f.comment
+FROM feedback f
+WHERE f.lecture_id = :lectureId
+  AND f.is_valid = true
+  AND f.comment IS NOT NULL;
+
+-- Extracted from StudentRepository @Query: Get students by division with their integrity scores, filtering out inactive users
+SELECT s.*, i.* 
+FROM students s 
+LEFT JOIN integrity_score i ON s.student_id = i.student_id 
+INNER JOIN users u ON s.student_id = u.user_id 
+WHERE s.division = :division AND u.is_active = true;
+
+-- Extracted from StudentRepository @Query: Get distinct divisions for a particular class based on its members
+SELECT DISTINCT s.division 
+FROM students s 
+JOIN class_members cm ON s.student_id = cm.user_id 
+WHERE cm.class_id = :classId;
+
+-- Extracted from TimetableRepository @Query: Get timetable entries with associated class details for a particular teacher
+SELECT t.*, c.* 
+FROM timetable t 
+JOIN classes c ON t.class_id = c.class_id 
+WHERE t.teacher_id = :teacherId;
+
+-- Extracted from TimetableRepository @Query: Get distinct divisions for a class from the timetable
+SELECT DISTINCT t.division 
+FROM timetable t 
+WHERE t.class_id = :classId;
+
+-- Inferred from Spring Data JPA Method Definitions: existsByLecture_LectureIdAndHashedStudentKey
+SELECT COUNT(*) > 0 FROM feedback WHERE lecture_id = ? AND hashed_student_key = ?;
+
+-- Inferred from Spring Data JPA Method Definitions: findByLecture_LectureId
+SELECT * FROM feedback WHERE lecture_id = ?;
+
+
+====================================================================
+SECTION 4: ADVANCED (TRIGGERS, PROCEDURES, VIEWS)
+====================================================================
+-- Note: Explicit raw database triggers/procedures were not found in this codebase.
+-- However, application-level triggers (@PrePersist) exist in the JPA Entities.
+-- Below are the inferred equivalent SQL TRIGGER instructions for these events.
+
+-- Inferred from @PrePersist on Lecture
+CREATE TRIGGER before_insert_lectures
+BEFORE INSERT ON lectures
+FOR EACH ROW
+SET NEW.created_at = CURRENT_TIMESTAMP;
+
+-- Inferred from @PrePersist on AttendanceDeclared
+CREATE TRIGGER before_insert_attendance_declared
+BEFORE INSERT ON attendance_declared
+FOR EACH ROW
+SET NEW.declared_at = CURRENT_TIMESTAMP;
+
+-- Inferred from @PrePersist on Note
+CREATE TRIGGER before_insert_notes
+BEFORE INSERT ON notes
+FOR EACH ROW
+SET NEW.uploaded_at = CURRENT_TIMESTAMP;
+
+-- Inferred from @PrePersist on Feedback
+CREATE TRIGGER before_insert_feedback
+BEFORE INSERT ON feedback
+FOR EACH ROW
+SET NEW.submitted_at = CURRENT_TIMESTAMP;
